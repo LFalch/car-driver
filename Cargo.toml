@@ -1,0 +1,8 @@
+[package]
+name = "car-driver"
+version = "0.1.0"
+authors = ["LFalch <lucas@wasd.dk>"]
+
+[dependencies]
+ggez = "0.4.3"
+self-compare = "0.2.0"
