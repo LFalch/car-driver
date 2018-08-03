@@ -1,58 +1,104 @@
-use std::f32::consts::PI;
+use std::f32::consts::{PI, FRAC_PI_2, FRAC_PI_4};
 
+use ext::FloatExt;
 use super::parts::{CarSetup, example};
 use super::*;
 use ::{InputState, DELTA, angle_to_vec, BLUE, RED, GREEN};
-
-const C_DRAG: f32 = 0.5 * 0.30 * 2.2 * 1.29;
-const ROLLING_RESISTANCE: f32 = 30. * C_DRAG;
-
-fn c_drag(coefficient: f32, area: f32) -> f32 {
-    0.5 * coefficient * area * 1.29
-}
 
 #[derive(Debug)]
 pub struct Car {
     pub obj: Object,
     pub velocity: Vector2,
     pub setup: CarSetup,
-    drag: f32,
-    rolling_r: f32,
-    brake_force: f32,
+    pub engine_speed: f32,
+    pub steering_angle: f32,
+    pub brake: f32,
+    pub throttle: f32,
+    pub clutch: f32,
+    pub gear: i8,
 }
 
 impl Car {
-    pub fn new(x: f32, y: f32, brakes: f32) -> Self {
+    pub fn new(x: f32, y: f32) -> Self {
+        let setup = example();
         Car {
             obj: Object::new(Point2::new(x, y)),
             velocity: Vector2::new(0., 0.),
-            setup: example(),
-            brake_force: brakes,
-            drag: C_DRAG,
-            rolling_r: ROLLING_RESISTANCE,
+            engine_speed: setup.engine.idle_rpm(),
+            setup,
+            steering_angle: 0.,
+            brake: 0.,
+            throttle: 0.,
+            clutch: 0.,
+            gear: 0,
         }
     }
     pub fn update(&mut self, input: &InputState) -> (Vector2, Vector2, Vector2) {
         let ang = angle_to_vec(self.obj.rot);
         let speed_forwards = self.velocity.dot(&ang);
+        let speed_sideways = self.velocity.perp(&ang);
         let vel_forwards = speed_forwards * ang;
+        let vel_sideways = speed_sideways * Vector2::new(ang.y, -ang.x);
 
-        self.obj.rot += input.hor() * 2. * PI * 0.01 * speed_forwards * DELTA;
-
-        let drag = -self.drag * self.velocity.norm() * self.velocity;
-        let rr = -self.rolling_r * vel_forwards;
-        let traction;
-        match input.ver {
-            -1 => traction = ang * self.setup.get_drive_force(speed_forwards, 1, 1.),
-            1 if self.velocity.norm() > 0. => traction = -self.brake_force * self.velocity.normalize(),
-            _ => traction = Vector2::new(0., 0.),
+        if input.hor() == 0. {
+            if self.steering_angle.abs() <= PI * DELTA {
+                self.steering_angle = 0.;
+            } else {
+                self.steering_angle -= self.steering_angle.signum() * PI * DELTA;
+            }
+        } else {
+            self.steering_angle += input.hor() * FRAC_PI_2 * DELTA;
+            if self.steering_angle.abs() > FRAC_PI_4 {
+                self.steering_angle = self.steering_angle.signum() * FRAC_PI_4;
+            }
         }
-        let acc = (traction + drag + rr) / self.setup.mass;
+        self.obj.rot += speed_forwards * self.steering_angle.sin()/15. * DELTA;
+
+        // NOTE implement using clutch
+
+        let rr = -self.setup.rolling_r * vel_forwards;
+        let mut traction = rr;
+        match input.ver {
+            -1 => self.throttle.cap_add(4. * DELTA, 1.),
+            1 => {
+                if self.brake >= 0.5 {
+                    self.brake += 8. * DELTA;
+                }
+                self.brake.cap_add(8. * DELTA, 1.);
+            }
+            _ => {
+                self.brake.cap_sub(8. * DELTA, 0.);
+                self.throttle.cap_sub(8. * DELTA, 0.);
+            }
+        }
+
+        traction += ang * self.setup.get_drive_force(speed_forwards, self.gear, self.throttle);
+
+        let drag = -self.setup.drag * self.velocity.norm() * self.velocity;
+        let grip_force = -vel_sideways * self.setup.mass / DELTA;
+
+        let mut total_force = traction + drag + grip_force;
+
+        let brake_force;
+        if speed_forwards != 0. || speed_sideways != 0. {
+            let brake = self.setup.brake_force * self.brake;
+            let max_brake = self.velocity.norm() * self.velocity.norm() * self.setup.mass / DELTA;
+            if brake > max_brake {
+                brake_force = -max_brake * self.velocity.normalize();
+            } else {
+                brake_force = -brake * self.velocity.normalize();
+            }
+            total_force += brake_force;
+        } else {
+            brake_force = Vector2::new(0., 0.);
+        }
+
+        let acc = total_force / self.setup.mass;
 
         self.obj.pos += (self.velocity * DELTA + 0.5 * acc * DELTA * DELTA) * 15.;
         self.velocity += acc * DELTA;
 
-        (traction, drag, rr)
+        (traction, drag, brake_force)
     }
     pub fn draw_lines(&self, ctx: &mut Context, traction: Vector2, drag: Vector2, rr: Vector2) -> GameResult<()> {
         let pos = self.obj.pos;

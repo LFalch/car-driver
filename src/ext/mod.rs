@@ -11,6 +11,53 @@ impl BoolExt for bool {
     }
 }
 
+/// Extensions for floats
+pub trait FloatExt {
+    /// Add a number with a saturating upper bound
+    fn cap_add(&mut self, rhs: Self, cap: Self);
+    /// Subtract a number with a saturating lower bound
+    fn cap_sub(&mut self, rhs: Self, cap: Self);
+}
+
+impl FloatExt for f32 {
+    fn cap_add(&mut self, rhs: Self, cap: Self) {
+        *self = (*self + rhs).min(cap)
+    }
+    fn cap_sub(&mut self, rhs: Self, cap: Self) {
+        *self = (*self - rhs).max(cap)
+    }
+}
+
+pub trait GearDisplay {
+    type Disp;
+    fn gear_disp(self) -> Self::Disp;
+}
+
+impl GearDisplay for i8 {
+    type Disp = GearDisp;
+    fn gear_disp(self) -> Self::Disp {
+        GearDisp(self)
+    }
+}
+
+use std::fmt;
+
+pub struct GearDisp(i8);
+
+impl fmt::Display for GearDisp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            0 => "N".fmt(f),
+            -1 => "R".fmt(f),
+            n @ 1...127 => n.fmt(f),
+            n => {
+                write!(f, "R")?;
+                (-n).fmt(f)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 /// Tracks how many buttons are being pressed in specific directions
 pub struct InputState {
