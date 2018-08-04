@@ -34,7 +34,7 @@ impl Car {
         }
     }
     pub fn update(&mut self, input: &InputState) -> (Vector2, Vector2, Vector2) {
-        let ang = angle_to_vec(self.obj.rot);
+        let ang = angle_to_vec(self.obj.rot+self.steering_angle);
         let speed_forwards = self.velocity.dot(&ang);
         let speed_sideways = self.velocity.perp(&ang);
         let vel_forwards = speed_forwards * ang;
@@ -52,7 +52,14 @@ impl Car {
                 self.steering_angle = self.steering_angle.signum() * FRAC_PI_4;
             }
         }
-        self.obj.rot += speed_forwards * self.steering_angle.sin()/15. * DELTA;
+
+        const L: f32 = 2.;
+        let car_ang = angle_to_vec(self.obj.rot);
+        let car_ang_kryds = Vector2::new(car_ang.y, -car_ang.x);
+
+        let angle_diff = speed_forwards * self.steering_angle.sin() / L * DELTA;
+        self.obj.pos += L/2. * (angle_diff.sin()*car_ang_kryds - (1. - angle_diff.cos())*car_ang);
+        self.obj.rot += angle_diff;
 
         // NOTE implement using clutch
 
