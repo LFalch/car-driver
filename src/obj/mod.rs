@@ -3,7 +3,7 @@ use ggez::graphics::{self, Point2, Vector2, Image};
 // use ggez::nalgebra as na;
 
 mod car;
-pub mod parts;
+pub mod setup;
 
 pub use self::car::*;
 

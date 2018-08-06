@@ -39,6 +39,7 @@ pub struct State {
 const DESIRED_FPS: u32 = 60;
 
 pub(crate) const DELTA: f32 = 1. / DESIRED_FPS as f32;
+pub const PIXELS_PER_METER: f32 = 15.;
 
 impl Master {
     /// Make a new state object
@@ -132,10 +133,10 @@ impl EventHandler for Master {
         use Keycode::*;
         // Update input axes and quit game on Escape
         match keycode {
-            W | Up => self.state.input.ver -= 1,
-            S | Down => self.state.input.ver += 1,
-            A | Left => self.state.input.hor -= 1,
-            D | Right => self.state.input.hor += 1,
+            W | Up => self.state.input.up += 1,
+            S | Down => self.state.input.down += 1,
+            A | Left => self.state.input.left += 1,
+            D | Right => self.state.input.right += 1,
             Escape => ctx.quit().unwrap(),
             _ => (),
         }
@@ -150,10 +151,10 @@ impl EventHandler for Master {
         use Keycode::*;
 
         match keycode {
-            W | Up => self.state.input.ver += 1,
-            S | Down => self.state.input.ver -= 1,
-            A | Left => self.state.input.hor += 1,
-            D | Right => self.state.input.hor -= 1,
+            W | Up => self.state.input.up -= 1,
+            S | Down => self.state.input.down -= 1,
+            A | Left => self.state.input.left -= 1,
+            D | Right => self.state.input.right -= 1,
             _ => (),
         }
         self.gs.key_up(&mut self.state, keycode)

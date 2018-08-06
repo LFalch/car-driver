@@ -28,55 +28,37 @@ impl FloatExt for f32 {
     }
 }
 
-pub trait GearDisplay {
-    type Disp;
-    fn gear_disp(self) -> Self::Disp;
-}
-
-impl GearDisplay for i8 {
-    type Disp = GearDisp;
-    fn gear_disp(self) -> Self::Disp {
-        GearDisp(self)
-    }
-}
-
-use std::fmt;
-
-pub struct GearDisp(i8);
-
-impl fmt::Display for GearDisp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.0 {
-            0 => "N".fmt(f),
-            -1 => "R".fmt(f),
-            n @ 1...127 => n.fmt(f),
-            n => {
-                write!(f, "R")?;
-                (-n).fmt(f)
-            }
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 /// Tracks how many buttons are being pressed in specific directions
 pub struct InputState {
-    /// Buttons in the left-right direction
-    pub hor: i8,
-    /// Buttons in the up-down direction
-    pub ver: i8,
+    /// Up keys down
+    pub up: u8,
+    /// Down keys down
+    pub down: u8,
+    /// Left keys down
+    pub left: u8,
+    /// Right keys down
+    pub right: u8,
 }
 
 impl InputState {
     #[inline]
     /// Returns `-1`, `0` or `1` depending on whether `self.hor` is negative, zero or positive
     pub fn hor(&self) -> f32 {
-        self.hor.signum() as f32
+        (self.right as i8 - self.left as i8).signum() as f32
     }
     /// Returns `-1`, `0` or `1` depending on whether `self.ver` is negative, zero or positive
     #[inline]
     pub fn ver(&self) -> f32 {
-        self.ver.signum() as f32
+        (self.down as i8 - self.up as i8).signum() as f32
+    }
+    #[inline]
+    pub fn acltr(&self) -> bool {
+        self.up != 0
+    }
+    #[inline]
+    pub fn brk(&self) -> bool {
+        self.down != 0
     }
 }
 

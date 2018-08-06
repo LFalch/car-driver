@@ -11,21 +11,20 @@ pub struct CarSetup {
     pub wheel_radius: f32,
     pub engine: Engine,
     pub transmission: Transmission,
+    pub fw_dist: f32,
+    pub rw_dist: f32,
 }
 
 const RAD_S_TO_RPM: f32 = 60. / (2. * ::std::f32::consts::PI);
-const HP_TO_KW: f32 = 0.745699872;
 
 impl CarSetup {
-    pub fn get_rpm(&self, speed: f32, gear: i8) -> f32 {
+    pub fn get_engine_rpm(&self, speed: f32, gear: i8) -> f32 {
         let wheel_rot = speed / self.wheel_radius;
         let rpm = wheel_rot * self.transmission.get_gear_ratio(gear) * self.transmission.final_drive_ratio * RAD_S_TO_RPM;
         rpm.max(self.engine.idle_rpm)
     }
 
-    pub fn get_drive_force(&self, speed: f32, gear: i8, throttle: f32) -> f32 {
-        let rpm = self.get_rpm(speed, gear);
-
+    pub fn get_drive_force(&self, rpm: f32, gear: i8, throttle: f32) -> f32 {
         let engine_torque = throttle * self.engine.get_torque(rpm);
         self.transmission.get_drive_torque(engine_torque, gear) / self.wheel_radius
     }
@@ -34,6 +33,8 @@ impl CarSetup {
 pub fn example() -> CarSetup {
     let drag = c_drag(0.30, 2.2);
     CarSetup {
+        fw_dist: 1.,
+        rw_dist: 1.,
         drag,
         rolling_r: 30. * drag,
         brake_force: 14_000.,
@@ -42,7 +43,7 @@ pub fn example() -> CarSetup {
         transmission: Transmission {
             ratios: vec![2.66, 1.78, 1.30, 1.0, 0.74, 0.50],
             reverse_ratios: vec![2.90],
-            efficiency: 0.70,
+            efficiency: 0.75,
             final_drive_ratio: 3.42,
         },
         engine: Engine {
@@ -72,22 +73,42 @@ impl Transmission {
     pub fn get_drive_torque(&self, engine_torque: f32, gear: i8) -> f32 {
         engine_torque * self.get_gear_ratio(gear) * self.final_drive_ratio * self.efficiency
     }
+    pub fn display(&self, gear: i8) -> GearDisp {
+        match gear {
+            0 => GearDisp::Neutral,
+            -1 if self.reverse_ratios.len() == 1 => GearDisp::Reverse,
+            n @ 1...127 => GearDisp::G(n as u8),
+            n => GearDisp::R(-n as u8)
+        }
+    }
+}
+
+use std::fmt;
+
+pub enum GearDisp{
+    Neutral,
+    G(u8),
+    R(u8),
+    Reverse,
+}
+
+impl fmt::Display for GearDisp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::GearDisp::*;
+        match *self {
+            Neutral => "N".fmt(f),
+            Reverse => "R".fmt(f),
+            G(n) => n.fmt(f),
+            R(n) => write!(f, "R{}", n),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Engine {
-    idle_rpm: f32,
-    redline_rpm: f32,
+    pub idle_rpm: f32,
+    pub redline_rpm: f32,
     pub torque: TorqueCurve,
-}
-
-impl Engine {
-    pub fn idle_rpm(&self) -> f32 {
-        self.idle_rpm
-    }
-    pub fn redline_rpm(&self) -> f32 {
-        self.redline_rpm
-    }
 }
 
 /// Third degree polynomial approximation of a torque curve
@@ -99,7 +120,6 @@ pub struct TorqueCurve {
     d: f32
 }
 
-const CBRT2: f64 = 1.25992104989487316476721060727822835057025146470150798008197511215529967651396;
 
 impl TorqueCurve {
     pub fn new(idle_rpm: f32, redline_rpm: f32, peak_torque_rpm: f32, peak_torque: f32, idle_torque: f32, redline_torque: f32) -> Self {
@@ -110,21 +130,20 @@ impl TorqueCurve {
         let x2 = x*x;
         self.a * x2 * x + self.b * x2 + self.c * x + self.d
     }
-    pub fn and_power(&self, x: f32) -> (f32, f32) {
-        let torque = self.get_value(x);
-        (torque, torque*x/7121.)
-    }
     pub fn peak_power(&self) -> (f32, f32) {
         let a = self.a as f64;
         let b = self.b as f64;
         let c = self.c as f64;
         let d = self.d as f64;
+
+        const CBRT2: f64 = 1.25992104989487316476721060727822835057025146470150798008197511215529967651396;
+
         let rpm = (((-432.*a*a*d + 216.*a*b*c - 54.*b*b*b).powi(2) + 4.*(24.*a*c - 9.*b*b).powi(3)).sqrt() - 432.*a*a*d + 216.*a*b*c - 54.*b*b*b).cbrt() /
             (12.*CBRT2*a) - (24.*a*c - 9.*b*b) / (6.*CBRT2*CBRT2*a*(((-432.*a*a*d + 216.*a*b*c - 54.*b*b*b).powi(2)
             + 4.*(24.*a*c - 9.*b*b).powi(3)).sqrt() - 432.*a*a*d + 216.*a*b*c - 54.*b*b*b).cbrt()) - b/(4.*a);
         let rpm = rpm as f32;
 
-        (rpm, self.and_power(rpm).1)
+        (rpm, self.get_value(rpm)*rpm/7121.)
     }
 }
 
@@ -151,8 +170,14 @@ impl Engine {
     pub fn get_torque(&self, rpm: f32) -> f32 {
         if rpm < self.idle_rpm {
             self.torque.get_value(self.idle_rpm) * (rpm / self.idle_rpm).max(0.5)
+        } else if rpm > self.redline_rpm {
+            self.torque.get_value(self.redline_rpm) * (500./ (rpm-self.redline_rpm)).max(0.).min(1.)
         } else {
-            self.torque.get_value(rpm.min(self.redline_rpm))
+            self.torque.get_value(rpm)
         }
+    }
+    pub fn and_power(&self, rpm: f32) -> (f32, f32) {
+        let torque = self.get_torque(rpm);
+        (torque, torque*rpm/7121.)
     }
 }
